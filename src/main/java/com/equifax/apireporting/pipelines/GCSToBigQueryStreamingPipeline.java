@@ -19,6 +19,7 @@ import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.transforms.windowing.FixedWindows;
 import org.apache.beam.sdk.transforms.windowing.Window;
 import org.apache.beam.sdk.values.PCollection;
+import org.apache.commons.io.FilenameUtils;
 import org.joda.time.Duration;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -31,6 +32,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * A template that copies data from a GCS bucket to an existing BigQuery table.
@@ -48,33 +50,18 @@ public class GCSToBigQueryStreamingPipeline {
     private static final String TYPE_STRUCT = "STRUCT";
     private static final int MAX_NESTING = 15;
 
-    private static final String MARKER = "NOT_NEEDED";
+    private static final String MARKER = "DATA_UPLOAD_SKIPPED";
 
     /** Options supported by {@link GCSToBigQueryStreamingPipeline}. */
     public interface Options extends PipelineOptions, StreamingOptions {
-        @Description("The GCS location of the text you'd like to process")
-        ValueProvider<String> getInputFilePattern();
-
-        void setInputFilePattern(ValueProvider<String> value);
-
-        @Description("JSON file with BigQuery Schema description")
-        ValueProvider<String> getJSONSchemaPath();
-
-        void setJSONSchemaPath(ValueProvider<String> value);
-
-        @Description("Fully qualified BigQuery table name to write to")
-        ValueProvider<String> getOutputTable();
-
-        void setOutputTable(ValueProvider<String> value);
-
+        //  New options for streaming pipeline.
+        //  Active here means data, schema and table, set for the actual data upload to the Google BigQuery table.
         @Validation.Required
         @Description("Temporary directory for BigQuery loading process")
         ValueProvider<String> getBigQueryLoadingTemporaryDirectory();
 
         void setBigQueryLoadingTemporaryDirectory(ValueProvider<String> directory);
 
-        //  New options for streaming pipeline.
-        //  Active here means data, schema and table, set for the actual data upload to the Google BigQuery table.
         @Description("The Cloud Pub/Sub topic to read from" + "for example: projects/PROJECT_ID/topics/TOPIC_NAME")
         @Validation.Required
         ValueProvider<String> getInputTopic();
@@ -95,6 +82,48 @@ public class GCSToBigQueryStreamingPipeline {
         ValueProvider<String> getActiveBiqQueryTableName();
 
         void setActiveBiqQueryTableName(ValueProvider<String> value);
+
+        @Description("Active file name path.")
+        ValueProvider<String> getActiveDataSetFileNameWithPath();
+
+        void setActiveDataSetFileNameWithPath(ValueProvider<String> value);
+
+        @Description("Google BigQuery ProjectID")
+        ValueProvider<String> getProjectID();
+
+        void setProjectID(ValueProvider<String> value);
+
+        @Description("Google CS bucket name to watch for file(s) changes.")
+        @Validation.Required
+        ValueProvider<String> getBucketName();
+
+        void setBucketName(ValueProvider<String> value);
+
+        @Description("Schema folder sub path, without bucket name.")
+        ValueProvider<String> getSchemaFolderPath();
+
+        void setSchemaFolderPath(ValueProvider<String> value);
+
+        @Description("Data folder sub path, without bucket name.")
+        ValueProvider<String> getDataFolderPath();
+
+        void setDataFolderPath(ValueProvider<String> value);
+
+        @Description("Google BigQuery data set name.")
+        ValueProvider<String> getBqDataSetName();
+
+        void setBqDataSetName(ValueProvider<String> value);
+
+        @Description("GCS data set name." + "for example: /some_folder/some_subfolder/data.json")
+        ValueProvider<String> getDataFileName();
+
+        void setDataFileName(ValueProvider<String> value);
+
+        @Description("Data file extension")
+        @Default.String("json")
+        String getDataFileExtension();
+
+        void setDataFileExtension(String value);
 
         @Description("Output file's window size in number of minutes.")
         @Default.Integer(60)
@@ -180,8 +209,6 @@ public class GCSToBigQueryStreamingPipeline {
                                                 }))
                                 .to(options.getActiveBiqQueryTableName())
                                 .withCreateDisposition(BigQueryIO.Write.CreateDisposition.CREATE_IF_NEEDED)
-                                //  TODO: Streaming doesn't allow to use WRITE_TRUNCATE method - discuss with architect(s)!
-                                //  .withWriteDisposition(BigQueryIO.Write.WriteDisposition.WRITE_TRUNCATE)
                                 .withWriteDisposition(BigQueryIO.Write.WriteDisposition.WRITE_APPEND)
                                 .withCustomGcsTempLocation(options.getBigQueryLoadingTemporaryDirectory()));
 
@@ -196,23 +223,35 @@ public class GCSToBigQueryStreamingPipeline {
 
             LOG.info("[INFO] GCSToBigQueryStreamingPipeline received message from Google Pub/Sub : " + arrivedMessage);
 
-            //  Get triggered data file name from Google Pub/Sub message.
+            //  Get parameters for triggered bucket and file names from Google Pub/Sub message
             String triggeredDataFileName = arrivedMessage.getString("name");
+            String triggeredBucketName = arrivedMessage.getString("bucket");
+            String triggeredDataFileExtension = getOnlyFileExtension(triggeredDataFileName);
 
             //  Get observed data file name from pipeline start options.
             Options options = processContext.getPipelineOptions().as(Options.class);
-            String observedDataFileName = new File(options.getInputFilePattern().toString()).getName();
+
+            String observedDataFolderPath = options.getDataFolderPath().toString();
+            String observedBucketName = options.getBucketName().toString();
+            String observedDataFileExtension = options.getDataFileExtension();
 
             //  Check that the files names are the same and make decision on workflow.
-            if (checkForCoincidenceTest(triggeredDataFileName, observedDataFileName)) {
-                LOG.info("[INFO] Files names match : " + triggeredDataFileName + " = " + observedDataFileName + ".");
+            if (checkForCoincidenceTest(triggeredDataFileName,
+                    triggeredBucketName,
+                    triggeredDataFileExtension,
+                    observedDataFolderPath,
+                    observedBucketName,
+                    observedDataFileExtension)) {
                 LOG.info("[INFO] Starting data upload to Google BigQuery...");
 
-                //  TODO: hardcoded values - move to pipeline options later!
                 //  Set pipeline options parameters for the active workflow.
-                options.setActiveDataSetFilePath(ValueProvider.StaticValueProvider.of("gs://java-templates/firestore/firestore-data.json"));
-                options.setActiveSchemaFilePath(ValueProvider.StaticValueProvider.of("gs://java-templates/firestore/schema/city.json"));
-                options.setActiveBiqQueryTableName(ValueProvider.StaticValueProvider.of("crucial-oarlock-283420:firestore_test.cities"));
+                options.setActiveDataSetFileNameWithPath(ValueProvider.StaticValueProvider.of(triggeredDataFileName));
+                options.setActiveDataSetFilePath(ValueProvider.StaticValueProvider.of("gs://" +
+                        triggeredBucketName + options.getDataFolderPath().toString() + getFileNameWithExtension(triggeredDataFileName)));
+                options.setActiveSchemaFilePath(ValueProvider.StaticValueProvider.of("gs://" +
+                        triggeredBucketName + options.getSchemaFolderPath().toString() + getFileNameWithExtension(triggeredDataFileName)));
+                options.setActiveBiqQueryTableName(ValueProvider.StaticValueProvider.of(options.getProjectID().toString() +
+                        ":" + options.getBqDataSetName().toString() + "." + getOnlyFileName(triggeredDataFileName)));
 
                 LOG.info("[INFO] Loading data file " + options.getActiveDataSetFilePath() +
                         " with schema " + options.getActiveSchemaFilePath() +
@@ -226,14 +265,37 @@ public class GCSToBigQueryStreamingPipeline {
                 options.setActiveSchemaFilePath(ValueProvider.StaticValueProvider.of(MARKER));
                 options.setActiveBiqQueryTableName(ValueProvider.StaticValueProvider.of(MARKER));
 
-                LOG.info("[INFO] Files names don't match : " + triggeredDataFileName + " != " + observedDataFileName + ".");
                 LOG.info("[INFO] Skipping data upload to Google BigQuery...");
             }
         }
 
-        //  Comparative logic data on upload decision here
-        private boolean checkForCoincidenceTest (String fileName1, String fileName2) {
-            return (fileName1.equals(fileName2));
+        /**  Comparative logic on data upload to Google BigQuery decision here. */
+        private boolean checkForCoincidenceTest (String triggeredDataFileName,
+                                                 String triggeredBucketName,
+                                                 String triggeredDataFileExtension,
+                                                 String observedDataFolderPath,
+                                                 String observedBucketName,
+                                                 String observedDataFileExtension) {
+
+            return ((triggeredDataFileName.contains(observedDataFolderPath)) &&
+                    (Objects.equals(triggeredBucketName, observedBucketName)) &&
+                    (Objects.equals(triggeredDataFileExtension, observedDataFileExtension)));
+        }
+
+
+        public static String getFileNameWithExtension(String path) {
+
+            return (new File(path).getName());
+        }
+
+        public static String getOnlyFileName(String path) {
+
+            return FilenameUtils.getBaseName(path);
+        }
+
+        public static String getOnlyFileExtension(String filename) {
+
+            return FilenameUtils.getExtension(filename);
         }
 
     }
@@ -247,8 +309,11 @@ public class GCSToBigQueryStreamingPipeline {
 
             //  Get file content from GCS and parse into lines
             Storage storage = StorageOptions.getDefaultInstance().getService();
-            //  TODO: hardcoded values - move to pipeline options later!
-            Blob blob = storage.get(BlobId.of("java-templates", "firestore/firestore-data.json"));
+
+            Options options = processContext.getPipelineOptions().as(Options.class);
+
+            Blob blob = storage.get(BlobId.of(options.getBucketName().toString(),
+                    options.getActiveDataSetFileNameWithPath().toString()));
 
             byte[] content = blob.getContent(Blob.BlobSourceOption.generationMatch());
 
@@ -260,7 +325,7 @@ public class GCSToBigQueryStreamingPipeline {
 
                 LOG.info("[INFO] JSON's line is : " + line);
             }
-            
+
         }
 
     }
@@ -283,9 +348,9 @@ public class GCSToBigQueryStreamingPipeline {
         }
     }
 
-    /** Factory method for {@link JsonToTableRow}. */
+    /** Factory method for {@link GCSToBigQueryStreamingPipeline.JsonToTableRow}. */
     public static PTransform<PCollection<String>, PCollection<TableRow>> jsonToTableRow() {
-        return new JsonToTableRow();
+        return new GCSToBigQueryStreamingPipeline.JsonToTableRow();
     }
 
     /**
