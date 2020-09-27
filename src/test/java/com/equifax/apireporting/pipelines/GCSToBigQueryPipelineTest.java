@@ -14,22 +14,20 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
-
 import java.io.ByteArrayOutputStream;
-import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
 
 @RunWith(JUnit4.class)
-public class GCSToBigQueryPipelineTest  {
+public class GCSToBigQueryPipelineTest {
 
     @Rule
     public transient TestPipeline pipeline = TestPipeline.create();
 
     @Test
-    public void testApplyJsonToTableRow() throws JsonProcessingException {
+    public void shouldApplyJsonToTableRow() throws JsonProcessingException {
         Map<String, Object> params = new HashMap<>();
         params.put("message", "Hello World");
         String payload = new ObjectMapper().writeValueAsString(params);
@@ -44,7 +42,7 @@ public class GCSToBigQueryPipelineTest  {
     }
 
     @Test
-    public void testJsonToTableRowGood() throws Exception {
+    public void shouldConvertJsonToTableRowGood() throws Exception {
         TableRow expectedRow = new TableRow();
         expectedRow.set("firstFake", "Larry");
         expectedRow.set("secondFake", "Anderson");

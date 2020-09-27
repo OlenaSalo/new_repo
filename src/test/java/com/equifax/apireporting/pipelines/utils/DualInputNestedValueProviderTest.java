@@ -15,20 +15,8 @@ public class DualInputNestedValueProviderTest {
     @Rule
     public ExpectedException expectedException = org.junit.rules.ExpectedException.none();
 
-    /** A test interface. */
-    public interface TestOptions extends PipelineOptions {
-        @Default.String("fake")
-        ValueProvider<String> getFake();
-
-        void setFake(ValueProvider<String> fake);
-
-        ValueProvider<Integer> getFakeNumber();
-
-        void setFakeNumber(ValueProvider<Integer> fakeNumber);
-    }
-
     @Test
-    public void testNestedValueProviderStatic() throws Exception {
+    public void shouldReadNestedValueProviderStatic() throws Exception {
         ValueProvider<String> xvp = ValueProvider.StaticValueProvider.of("fake");
         ValueProvider<Integer> yvp = ValueProvider.StaticValueProvider.of(1);
         ValueProvider<String> zvp =
@@ -46,7 +34,7 @@ public class DualInputNestedValueProviderTest {
     }
 
     @Test
-    public void testNestedValueProviderRuntime() throws Exception {
+    public void shouldReadNestedValueProviderRuntime() throws Exception {
         TestOptions options = PipelineOptionsFactory.as(TestOptions.class);
         ValueProvider<String> fake = options.getFake();
         ValueProvider<Integer> fakeNumber = options.getFakeNumber();
@@ -64,5 +52,19 @@ public class DualInputNestedValueProviderTest {
         expectedException.expect(RuntimeException.class);
         expectedException.expectMessage("Value only available at runtime");
         fakeFakeNumber.get();
+    }
+
+    /**
+     * A test interface.
+     */
+    public interface TestOptions extends PipelineOptions {
+        @Default.String("fake")
+        ValueProvider<String> getFake();
+
+        void setFake(ValueProvider<String> fake);
+
+        ValueProvider<Integer> getFakeNumber();
+
+        void setFakeNumber(ValueProvider<Integer> fakeNumber);
     }
 }

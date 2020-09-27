@@ -11,8 +11,8 @@ import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
 import org.junit.Rule;
 import org.junit.Test;
-import java.io.Serializable;
 
+import java.io.Serializable;
 
 
 public class CloudSQLToGCSPipelineTest implements Serializable {
@@ -21,7 +21,7 @@ public class CloudSQLToGCSPipelineTest implements Serializable {
     public transient TestPipeline pipeline = TestPipeline.create();
 
     @Test
-    public void testApplyConvertTableRowToJSON()  {
+    public void shouldApplyConvertedTableRowToJSON() {
         TableRow row1 = new TableRow().set("name", "a").set("number", "1");
         TableRow row2 = new TableRow().set("name", "b").set("number", "2");
         TableRow row3 = new TableRow().set("name", "c").set("number", "3");

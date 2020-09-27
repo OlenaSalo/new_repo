@@ -19,7 +19,7 @@ public class SchemaParserTest {
     public transient TemporaryFolder testFolder = new TemporaryFolder();
 
     @Test
-    public void testSchemaParser() throws Exception {
+    public void shouldParseInputSchema() throws Exception {
 
         Map<String, Object> params = new HashMap<>();
         params.put("message", "Fake information");

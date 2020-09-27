@@ -27,7 +27,8 @@ public class JdbcConvertersTests {
     @Mock
     private ResultSet resultSet;
 
-    @Mock private ResultSetMetaData resultSetMetaData;
+    @Mock
+    private ResultSetMetaData resultSetMetaData;
 
     @Before
     public void setUp() throws Exception {
@@ -48,7 +49,7 @@ public class JdbcConvertersTests {
     }
 
     @Test
-    public void testRowMapper() throws Exception {
+    public void shouldMapTableRow() throws Exception {
 
         JdbcIO.RowMapper<TableRow> resultSetConverters = JdbcConverters.getResultSetToTableRow();
         TableRow actualTableRow = resultSetConverters.mapRow(resultSet);
